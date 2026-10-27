@@ -32,7 +32,7 @@ import { placeUnshownLiveTerminalsBestEffort } from '../runtime/terminal/adoptio
 
 export { parseArgs }
 
-let closeOrcadObservability = (): void => {}
+let closeOrcadObservability = (): Promise<void> => Promise.resolve()
 
 /** Resolve after transport readiness publishes the desktop-compatible serve payload. */
 export async function startOrcad(options: OrcadOptions = {}): Promise<OrcadHandle> {
@@ -45,13 +45,14 @@ export async function startOrcad(options: OrcadOptions = {}): Promise<OrcadHandl
   const { readiness, instance, stop } = await startOrcadWithHost(
     userDataPath,
     (registerCleanup) => startOrcadRuntime(options, registerCleanup),
-    () => {
+    async () => {
       try {
         runOrcadQuitHandlers()
       } finally {
         // Close after quit handlers, including failed ones, so their spans reach disk.
-        closeOrcadObservability()
-        closeOrcadObservability = () => {}
+        const closing = closeOrcadObservability()
+        closeOrcadObservability = () => Promise.resolve()
+        await closing
       }
     }
   )
