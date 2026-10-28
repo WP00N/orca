@@ -1,0 +1,56 @@
+name: HQ-89 isolated CLI artifact and help smoke (manual only)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hq89-isolated-cli-smoke
+  cancel-in-progress: false
+
+jobs:
+  build-cli-help:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact reviewed Orca source
+        uses: actions/checkout@v6
+        with:
+          repository: WP00N/orca
+          ref: 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          persist-credentials: false
+      - name: Assert exact immutable source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          echo "HQ89_CLI_SOURCE_SHA=$(git rev-parse HEAD)"
+      - name: Install source-pinned dependencies
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+      - name: Build CLI output ONLY, never invoke global installer
+        shell: bash
+        run: |
+          pnpm run build:packages
+          node config/scripts/build-cli.mjs
+          node config/scripts/verify-cli-bin.mjs --fix-executable --fix-package-json --run-help
+          test -f out/cli/index.js
+          echo 'HQ89_CLI_BUILD_PASS'
+      - name: Verify built help advertises fenced consumer generation
+        shell: bash
+        env:
+          ORCA_USER_DATA_PATH: /tmp/hq89-isolated-cli-profile
+        run: |
+          node out/cli/index.js orchestration check --help > "$RUNNER_TEMP/hq89-help.txt"
+          grep -F -- '--expect-generation <n>' "$RUNNER_TEMP/hq89-help.txt"
+          grep -F -- '--ack <delivery_id>' "$RUNNER_TEMP/hq89-help.txt"
+          echo 'HQ89_FENCED_BUILT_CLI_HELP_PASS'
+      - name: Confirm isolation
+        shell: bash
+        run: |
+          echo 'No orca-dev global install, no runtime connection, no source ACK/dispatch, no deployment'
+          echo 'HQ89_BUILD_ONLY_COMPATIBILITY_SMOKE_PASS'
