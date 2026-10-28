@@ -1,0 +1,45 @@
+name: HQ-89 official CI Bun typecheck (manual only)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hq89-official-bun-typecheck
+  cancel-in-progress: false
+
+jobs:
+  exact-head-ci-typecheck:
+    name: Reviewed source, official CI compiler
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact reviewed Orca source
+        uses: actions/checkout@v6
+        with:
+          repository: WP00N/orca
+          ref: 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          persist-credentials: false
+      - name: Assert exact SHA
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          echo "HQ89_VERIFIED_SOURCE_SHA=$(git rev-parse HEAD)"
+      - name: Install source-pinned dependencies
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+      - name: Run official Orca CI typecheck with bounded concurrency
+        shell: bash
+        run: |
+          echo "HQ89_OFFICIAL_CI_TYPECHECK_START=$(date -u +%FT%TZ)"
+          node --version
+          pnpm run typecheck:ci --bun-concurrency=1 --bun-threads=2
+          echo "HQ89_OFFICIAL_CI_TYPECHECK_PASS=$(date -u +%FT%TZ)"
+      - name: Verify complete project typecheck
+        shell: bash
+        run: echo 'HQ89_FULL_SUPPORTED_CI_COMPILER_PASS'
