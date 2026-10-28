@@ -1,0 +1,59 @@
+name: HQ-89 scoped contract CI (not release typecheck)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hq89-scoped-contract-ci
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Pinned source regressions, contract and lint only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@v6
+        with:
+          repository: WP00N/orca
+          ref: 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          persist-credentials: false
+      - name: Verify exact source SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = '4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef'
+      - name: Install dependencies for source tests
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+      - name: Generated RPC catalog and max-lines ratchet
+        shell: bash
+        run: |
+          node config/scripts/generate-rpc-params-catalog.mjs --check
+          node config/scripts/check-max-lines-ratchet.mjs
+      - name: Orca generation and mailbox contract tests
+        shell: bash
+        run: |
+          pnpm exec vitest run --config config/vitest.config.ts \
+            src/main/runtime/rpc/methods/orchestration/messaging/check-run-expected-generation.test.ts \
+            src/cli/handlers/orchestration-check-identity.test.ts \
+            src/main/runtime/orchestration/orchestration-delivery-consumption.test.ts \
+            src/main/runtime/orchestration-message-delivery-identity.test.ts \
+            src/main/runtime/orchestration-mailbox-routing-races.spec.ts \
+            --maxWorkers=2
+      - name: Focused source lint
+        shell: bash
+        run: |
+          pnpm exec oxlint \
+            src/main/runtime/orchestration/db/messages/direct-mailbox-routing.ts \
+            src/main/runtime/rpc/methods/orchestration/messaging/check-run.ts \
+            src/main/runtime/rpc/methods/orchestration/routing.ts \
+            src/main/runtime/rpc/methods/orchestration/messaging/check-run-expected-generation.test.ts
+      - name: Explicit scope declaration
+        shell: bash
+        run: echo 'Scoped CI only; full native TypeScript CI remains an unresolved HQ-89 release gate.'
