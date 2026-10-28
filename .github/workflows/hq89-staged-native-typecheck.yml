@@ -1,0 +1,59 @@
+name: HQ-89 staged native TypeScript validation (manual only)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hq89-staged-native-typecheck
+  cancel-in-progress: false
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - name: Checkout exact reviewed source
+        uses: actions/checkout@v6
+        with:
+          repository: WP00N/orca
+          ref: 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          persist-credentials: false
+      - name: Assert source SHA
+        run: test "$(git rev-parse HEAD)" = 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+      - name: Install pinned dependencies
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+      - name: Build process-host prerequisite independently
+        shell: bash
+        run: |
+          echo "HQ89_PREREQUISITE_BEGIN=$(date -u +%FT%TZ)"
+          timeout --signal=TERM --kill-after=10s 150s pnpm --filter @orca/process-host build
+          echo "HQ89_PREREQUISITE_PASS=$(date -u +%FT%TZ)"
+      - name: Typecheck process-host test project
+        shell: bash
+        run: |
+          timeout --signal=TERM --kill-after=10s 480s node config/scripts/run-typecheck-projects-in-parallel.mjs --compiler=native --project=src/packages/process-host/tsconfig.test.json
+          echo 'HQ89_PROCESS_HOST_TS_PASS'
+      - name: Typecheck CLI project
+        shell: bash
+        run: |
+          timeout --signal=TERM --kill-after=10s 480s node config/scripts/run-typecheck-projects-in-parallel.mjs --compiler=native --project=config/tsconfig.tc.cli.json
+          echo 'HQ89_CLI_TS_PASS'
+      - name: Typecheck Node project
+        shell: bash
+        run: |
+          timeout --signal=TERM --kill-after=10s 720s node config/scripts/run-typecheck-projects-in-parallel.mjs --compiler=native --project=config/tsconfig.node.json
+          echo 'HQ89_NODE_TS_PASS'
+      - name: Typecheck Web project
+        shell: bash
+        run: |
+          timeout --signal=TERM --kill-after=10s 720s node config/scripts/run-typecheck-projects-in-parallel.mjs --compiler=native --project=config/tsconfig.tc.web.json
+          echo 'HQ89_WEB_TS_PASS'
+      - name: Native TypeScript scope complete
+        run: echo 'HQ89_STAGED_NATIVE_TYPECHECK_ALL_PASS'
