@@ -51,7 +51,7 @@ jobs:
           echo "HQ89_NODE_DIAG_BEGIN=$(date -u +%FT%TZ)"
           free -m
           cat /sys/fs/cgroup/memory.max || true
-          compiler="$(node -p 'require.resolve("typescript/bin/tsc")')"
+          compiler="$(node -p 'require.resolve("typescript/package.json").replace(/package\.json$/, "bin/tsc")')"
           ( while true; do
               sleep 12
               echo "HQ89_NODE_MEMORY_TIME=$(date -u +%FT%TZ)"
