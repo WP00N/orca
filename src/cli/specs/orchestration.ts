@@ -88,9 +88,9 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'check'],
     summary: "Check this agent's messages",
     usage:
-      'orca orchestration check [--terminal <handle>] [--run <run_id>] [--ack <delivery_id>] [--unread | --peek | --all] [--types <type,...>] [--format] [--wait] [--timeout-ms <n>] [--retry-request <id>] [--json]\n' +
+      'orca orchestration check [--terminal <handle>] [--run <run_id>] [--expect-generation <n>] [--ack <delivery_id>] [--unread | --peek | --all] [--types <type,...>] [--format] [--wait] [--timeout-ms <n>] [--retry-request <id>] [--json]\n' +
       "  default: return the bound Run's oldest unacknowledged FIFO batch.\n" +
-      '  --ack: acknowledge the prior whole batch before checking/waiting.\n' +
+      '  --ack: acknowledge the previous whole batch; --expect-generation <n>: fence check/ACK to the exact Run consumer (requires --run).\n' +
       '  --peek: return only unread messages without marking them read.\n' +
       '  --all: return every message for the handle; does not mark read.\n' +
       '  --wait: block until a matching message arrives or --timeout-ms expires.\n' +
@@ -102,6 +102,7 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
       ...GLOBAL_FLAGS,
       'terminal',
       'run',
+      'expect-generation',
       'ack',
       'unread',
       'peek',
