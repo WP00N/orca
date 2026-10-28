@@ -1,0 +1,51 @@
+name: HQ-89 process-host build diagnosis (manual only)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hq89-process-host-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  isolate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout pinned reviewed source
+        uses: actions/checkout@v6
+        with:
+          repository: WP00N/orca
+          ref: 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          persist-credentials: false
+      - name: Assert pinned SHA
+        run: test "$(git rev-parse HEAD)" = 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+      - name: Install dependencies
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+      - name: Direct process-host TypeScript compiler probe
+        shell: bash
+        run: |
+          date -u
+          node --version
+          pnpm exec tsc --noEmit -p src/packages/process-host/tsconfig.json --pretty false
+          date -u
+      - name: Isolated process-host distribution build with bounded timeout
+        shell: bash
+        run: |
+          echo "HQ89_BUILD_START=$(date -u +%FT%TZ)"
+          free -m
+          timeout --signal=TERM --kill-after=10s 165s pnpm --filter @orca/process-host build
+          echo "HQ89_BUILD_SUCCESS=$(date -u +%FT%TZ)"
+      - name: Check generated process-host distribution
+        shell: bash
+        run: |
+          test -f src/packages/process-host/dist/run-process.js
+          test -f src/packages/process-host/dist/run-process.d.ts
+          echo 'HQ89_ISOLATED_PROCESS_HOST_DIST_PASS'
