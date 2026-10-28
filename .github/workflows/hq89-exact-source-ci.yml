@@ -1,0 +1,61 @@
+name: HQ-89 exact source validation (manual only)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hq89-exact-source-validation
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify reviewed v1.4.239 Orca source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact reviewed source commit
+        uses: actions/checkout@v6
+        with:
+          repository: WP00N/orca
+          ref: 4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef
+          persist-credentials: false
+      - name: Assert exact source revision
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = '4b04cad0d461c1c12a1ccfc7e9dbaefffa2c09ef'
+          echo "Validated source SHA: $(git rev-parse HEAD)"
+      - name: Install source-pinned Node and pnpm dependencies
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+      - name: Verify generated RPC contract and line ratchet
+        shell: bash
+        run: |
+          node config/scripts/generate-rpc-params-catalog.mjs --check
+          node config/scripts/check-max-lines-ratchet.mjs
+      - name: Targeted generation-fencing and mailbox regressions
+        shell: bash
+        run: |
+          pnpm exec vitest run --config config/vitest.config.ts \
+            src/main/runtime/rpc/methods/orchestration/messaging/check-run-expected-generation.test.ts \
+            src/cli/handlers/orchestration-check-identity.test.ts \
+            src/main/runtime/orchestration/orchestration-delivery-consumption.test.ts \
+            src/main/runtime/orchestration-message-delivery-identity.test.ts \
+            src/main/runtime/orchestration-mailbox-routing-races.spec.ts \
+            --maxWorkers=2
+      - name: Native TypeScript validation
+        shell: bash
+        run: pnpm tc --compiler=native
+      - name: Targeted source lint
+        shell: bash
+        run: |
+          pnpm exec oxlint \
+            src/main/runtime/orchestration/db/messages/direct-mailbox-routing.ts \
+            src/main/runtime/rpc/methods/orchestration/messaging/check-run.ts \
+            src/main/runtime/rpc/methods/orchestration/routing.ts \
+            src/main/runtime/rpc/methods/orchestration/messaging/check-run-expected-generation.test.ts
