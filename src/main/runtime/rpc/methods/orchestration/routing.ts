@@ -141,7 +141,8 @@ export function legacyWorkerDeliveryContract(
 export function interruptedAcknowledgedCheck(
   runId: string,
   acknowledged: string,
-  reason: 'consumer_fenced' | 'outcome_unknown' | 'waiter_exists'
+  reason: 'consumer_fenced' | 'outcome_unknown' | 'waiter_exists',
+  consumerGeneration?: number
 ): Record<string, unknown> {
   return {
     runId,
@@ -149,6 +150,7 @@ export function interruptedAcknowledgedCheck(
     messages: [],
     count: 0,
     acknowledged,
+    ...(consumerGeneration === undefined ? {} : { consumerGeneration }),
     timedOut: false,
     cancelled: false,
     connectionLost: false,

@@ -189,6 +189,75 @@ describe('HQ-89 expected consumer generation fences Run check and ACK', () => {
     }
   )
 
+  it('preserves a fenced ACK receipt when the following wait is interrupted', async () => {
+    const current = generation()
+    message()
+    const first = await check({ expectedConsumerGeneration: current })
+    if (
+      !first ||
+      typeof first !== 'object' ||
+      !('deliveryId' in first) ||
+      typeof first.deliveryId !== 'string'
+    ) {
+      throw new Error('Missing source Delivery')
+    }
+    vi.spyOn(state.runtime, 'waitForMessage').mockResolvedValueOnce('waiter_exists')
+    const result = await check({
+      expectedConsumerGeneration: current,
+      ack: first.deliveryId,
+      wait: true
+    })
+    expect(result).toMatchObject({
+      runId: runId(),
+      consumerGeneration: current,
+      acknowledged: first.deliveryId,
+      waitInterrupted: 'waiter_exists'
+    })
+    expect(state.db.getDeliveryRaw(first.deliveryId)?.acknowledged_at).not.toBeNull()
+  })
+
+  it('fences every routed page when ownership ABA changes between pages', async () => {
+    const stale = generation()
+    for (let index = 0; index < 101; index += 1) {
+      const direct = state.db.insertMessage({
+        from: 'worker',
+        to: 'term_coord',
+        runId: runId(),
+        subject: `Pending page ${index}`
+      })
+      // Run-aware insertion routes immediately; explicitly recreate the
+      // pre-routing direct-mail snapshot exercised by this race test.
+      state.db.db
+        .prepare('UPDATE messages SET to_handle = ? WHERE id = ?')
+        .run('term_coord', direct.id)
+    }
+    const original = state.db.routeUnreadDirectMessagesToRunMailbox.bind(state.db)
+    let count = 0
+    let changesAfterRebind = -1
+    vi.spyOn(state.db, 'routeUnreadDirectMessagesToRunMailbox').mockImplementation((...args) => {
+      count += 1
+      if (count === 2) {
+        expect(args[3]).toBe(stale)
+        rebindAwayAndBack()
+        changesAfterRebind = (
+          state.db.db.prepare('SELECT total_changes() AS n').get() as { n: number }
+        ).n
+      }
+      return original(...args)
+    })
+    await expect(check({ expectedConsumerGeneration: stale })).rejects.toMatchObject({
+      code: 'consumer_fenced'
+    })
+    expect(count).toBe(2)
+    // Rebinding itself may reroute direct mail. What must not happen is
+    // ANY further routing mutation by this stale check after rebinding.
+    expect(changesAfterRebind).toBeGreaterThan(0)
+    expect((state.db.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n).toBe(
+      changesAfterRebind
+    )
+    expect(state.db.hasOutstandingRunDelivery(runId())).toBe(false)
+  })
+
   it('also fences when a rebind interleaves after the request starts', async () => {
     const old = generation()
     const msg = message()
