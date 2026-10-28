@@ -94,6 +94,91 @@ describe('orchestration check identity', () => {
     )
   })
 
+  it('routes expected generation only through a new fail-closed RPC method', async () => {
+    process.env.ORCA_TERMINAL_HANDLE = 'term_coord'
+
+    callMock.mockResolvedValueOnce({
+      result: { messages: [], count: 0, consumerGeneration: 3 }
+    })
+
+    await invokeCheck(
+      new Map<string, string | boolean>([
+        ['run', 'run_fixture'],
+        ['expect-generation', '3']
+      ])
+    )
+
+    expect(callMock).toHaveBeenCalledWith(
+      'orchestration.checkFenced',
+      expect.objectContaining({
+        terminal: 'term_coord',
+        run: 'run_fixture',
+        expectedConsumerGeneration: 3
+      })
+    )
+    expect(callMock).not.toHaveBeenCalledWith(
+      'orchestration.check',
+      expect.objectContaining({ expectedConsumerGeneration: 3 })
+    )
+  })
+
+  it('rejects mismatched runtime generation without legacy fallback or ACK', async () => {
+    process.env.ORCA_TERMINAL_HANDLE = 'term_coord'
+    callMock.mockResolvedValueOnce({
+      result: {
+        messages: [],
+        count: 0,
+        consumerGeneration: 4,
+        legacyCompatibility: { ackMessageIds: ['msg_legacy'] }
+      }
+    })
+    await expect(
+      invokeCheck(
+        new Map<string, string | boolean>([
+          ['run', 'run_fixture'],
+          ['expect-generation', '3']
+        ])
+      )
+    ).rejects.toMatchObject({ code: 'consumer_fenced' })
+    expect(callMock).toHaveBeenCalledTimes(1)
+    expect(callMock.mock.calls[0]?.[0]).toBe('orchestration.checkFenced')
+    expect(printResultMock).not.toHaveBeenCalled()
+  })
+
+  it('does not downgrade when the connected runtime lacks the new RPC method', async () => {
+    process.env.ORCA_TERMINAL_HANDLE = 'term_coord'
+    callMock.mockRejectedValueOnce(
+      Object.assign(new Error('Unknown method'), { code: 'method_not_found' })
+    )
+    await expect(
+      invokeCheck(
+        new Map<string, string | boolean>([
+          ['run', 'run_fixture'],
+          ['expect-generation', '3']
+        ])
+      )
+    ).rejects.toThrow()
+    expect(callMock).toHaveBeenCalledTimes(1)
+    expect(callMock.mock.calls[0]?.[0]).toBe('orchestration.checkFenced')
+    expect(printResultMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects missing or invalid expected generation before any runtime call', async () => {
+    process.env.ORCA_TERMINAL_HANDLE = 'term_coord'
+    for (const raw of [true, '0', '1.5', '-1', '9007199254740993'] as const) {
+      callMock.mockClear()
+      await expect(
+        invokeCheck(
+          new Map<string, string | boolean>([
+            ['run', 'run_fixture'],
+            ['expect-generation', raw]
+          ])
+        )
+      ).rejects.toMatchObject({ code: 'invalid_argument' })
+      expect(callMock).not.toHaveBeenCalled()
+    }
+  })
+
   it('surfaces a stale --terminal refusal instead of an empty inbox', async () => {
     callMock.mockRejectedValue(
       Object.assign(new Error('Terminal term_gone has no live pane bound to a Run'), {

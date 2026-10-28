@@ -21,6 +21,7 @@ type CheckResult = {
   formatted?: string
   deliveryId?: string | null
   runId?: string
+  consumerGeneration?: number
   timedOut?: boolean
   cancelled?: boolean
   connectionLost?: boolean
@@ -39,6 +40,10 @@ export const ORCHESTRATION_CHECK_HANDLER: Record<string, CommandHandler> = {
       )
     }
     const timeoutMs = getOptionalPositiveIntegerValueFlag(flags, 'timeout-ms')
+    const expectedConsumerGeneration = getOptionalPositiveIntegerValueFlag(
+      flags,
+      'expect-generation'
+    )
     const explicitTerminal = getOptionalStringFlag(flags, 'terminal')
     const terminal = await resolveOrchestrationTerminalHandle(flags, cwd, client, 'terminal')
     // Sessions use their injected id; inherited pane keys belong to a different caller.
@@ -48,24 +53,43 @@ export const ORCHESTRATION_CHECK_HANDLER: Record<string, CommandHandler> = {
     const stopKeepalive = wait ? startCheckKeepalive(timeoutMs) : null
     let result: Awaited<ReturnType<typeof client.call<CheckResult>>>
     try {
-      result = await callOrchestrationMutation<CheckResult>(client, flags, 'orchestration.check', {
-        terminal,
-        terminalPaneKey: paneKey || undefined,
-        // unread:false makes hosts that ignore peek fall back to non-consuming all mode.
-        unread: flags.has('unread') ? true : peek ? false : undefined,
-        peek: peek ? true : undefined,
-        all: flags.has('all') ? true : undefined,
-        types: getOptionalStringFlag(flags, 'types'),
-        format: flags.has('format') ? true : undefined,
-        inject: flags.has('inject') ? true : undefined,
-        compatibilityCliCommand: resolveCompatibilityCliCommand(),
-        run: getOptionalStringFlag(flags, 'run'),
-        ack: getOptionalStringFlag(flags, 'ack'),
-        wait: wait ? true : undefined,
-        timeoutMs
-      })
+      result = await callOrchestrationMutation<CheckResult>(
+        client,
+        flags,
+        expectedConsumerGeneration === undefined
+          ? 'orchestration.check'
+          : 'orchestration.checkFenced',
+        {
+          terminal,
+          terminalPaneKey: paneKey || undefined,
+          // unread:false makes hosts that ignore peek fall back to non-consuming all mode.
+          unread: flags.has('unread') ? true : peek ? false : undefined,
+          peek: peek ? true : undefined,
+          all: flags.has('all') ? true : undefined,
+          types: getOptionalStringFlag(flags, 'types'),
+          format: flags.has('format') ? true : undefined,
+          inject: flags.has('inject') ? true : undefined,
+          compatibilityCliCommand: resolveCompatibilityCliCommand(),
+          run: getOptionalStringFlag(flags, 'run'),
+          expectedConsumerGeneration,
+          ack: getOptionalStringFlag(flags, 'ack'),
+          wait: wait ? true : undefined,
+          timeoutMs
+        }
+      )
     } finally {
       stopKeepalive?.()
+    }
+    if (
+      expectedConsumerGeneration !== undefined &&
+      (result.result.consumerGeneration !== expectedConsumerGeneration ||
+        result.result.legacyCompatibility !== undefined)
+    ) {
+      // No version-skew fallback, legacy ACK, or silent downgrade is safe.
+      throw new RuntimeClientError(
+        'consumer_fenced',
+        'The runtime did not attest the expected Run consumer generation.'
+      )
     }
     if (peek) {
       result = filterLegacyPeekResult(result, wait)
@@ -76,7 +100,11 @@ export const ORCHESTRATION_CHECK_HANDLER: Record<string, CommandHandler> = {
     }
     printResult(result, json, (value) => formatOrchestrationCheckText(value, callerLabel))
     const compatibilityAck = result.result.legacyCompatibility?.ackMessageIds
-    if (compatibilityAck && compatibilityAck.length > 0) {
+    if (
+      expectedConsumerGeneration === undefined &&
+      compatibilityAck &&
+      compatibilityAck.length > 0
+    ) {
       await flushOrchestrationStdout()
       await client.call('orchestration.check', {
         terminal,

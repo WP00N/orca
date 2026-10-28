@@ -16,6 +16,7 @@ import {
 export {
   AskParams,
   CheckParams,
+  FencedCheckParams,
   DispatchParams,
   DispatchShowParams,
   InboxParams,

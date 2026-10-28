@@ -43,10 +43,14 @@ export function routeDirectMessagePage(
   runId: string,
   directHandle: string,
   throughSequence?: number,
-  preserveActiveDispatchOwnership = false
+  preserveActiveDispatchOwnership = false,
+  expectedConsumerGeneration?: number
 ): MailboxRoutingPage {
   this.db.exec('BEGIN IMMEDIATE')
   try {
+    if (expectedConsumerGeneration !== undefined) {
+      this.requireCurrentConsumer(runId, expectedConsumerGeneration)
+    }
     const throughClause = throughSequence === undefined ? '' : ' AND sequence <= ?'
     const dispatchOwnershipClause = preserveActiveDispatchOwnership
       ? ` AND NOT ${activeDispatchOwnsAddressSql('messages.run_id', 'messages.to_handle')}`
@@ -93,9 +97,17 @@ export function routeUnreadDirectMessagesToRunMailbox(
   this: OrchestrationDb,
   runId: string,
   directHandle: string,
-  throughSequence?: number
+  throughSequence?: number,
+  expectedConsumerGeneration?: number
 ): MailboxRoutingPage {
-  return this.routeDirectMessagePage(`run:${runId}`, runId, directHandle, throughSequence, true)
+  return this.routeDirectMessagePage(
+    `run:${runId}`,
+    runId,
+    directHandle,
+    throughSequence,
+    true,
+    expectedConsumerGeneration
+  )
 }
 
 export function routeUnreadDirectMessagesToDispatchMailbox(

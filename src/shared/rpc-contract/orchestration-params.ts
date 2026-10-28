@@ -44,6 +44,7 @@ export const CheckParams = z
     compatibilityQuestionAck: OptionalString,
     compatibilityCliCommand: z.enum(['orca', 'orca-ide', 'orca-dev']).optional(),
     run: OptionalString,
+    expectedConsumerGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     wait: OptionalBoolean,
     timeoutMs: OptionalFiniteNumber
   })
@@ -61,6 +62,17 @@ export const CheckParams = z
       })
     }
   })
+
+// Distinct RPC name is intentional: an older runtime must reject this
+// request BEFORE consuming mail rather than silently stripping an unknown
+// expected-generation field from orchestration.check.
+export const FencedCheckParams = z.intersection(
+  CheckParams,
+  z.object({
+    run: z.string().min(1),
+    expectedConsumerGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+  })
+)
 
 export const ReplyParams = z.object({
   id: requiredString('Missing --id'),

@@ -61,15 +61,35 @@ export async function checkRunMailbox(args: {
     callerEvidence: orchestrationCompatibilityEvidence
   })
   const generation = run.consumer_generation
+  if (
+    params.expectedConsumerGeneration !== undefined &&
+    params.expectedConsumerGeneration !== generation
+  ) {
+    throw new OrchestrationError(
+      'consumer_fenced',
+      'The expected Run consumer generation is no longer current.',
+      { effectsApplied: false }
+    )
+  }
   const address = `run:${run.id}`
   runtime.ensureOrchestrationFederationRelay(run.id)
   await routeDirectSnapshot(run.id, handle, (throughSequence) =>
-    db.routeUnreadDirectMessagesToRunMailbox(run.id, handle, throughSequence)
+    db.routeUnreadDirectMessagesToRunMailbox(
+      run.id,
+      handle,
+      throughSequence,
+      params.expectedConsumerGeneration
+    )
   )
   const coordinatorHandle = run.coordinator_handle
   if (coordinatorHandle && coordinatorHandle !== handle) {
     await routeDirectSnapshot(run.id, coordinatorHandle, (throughSequence) =>
-      db.routeUnreadDirectMessagesToRunMailbox(run.id, coordinatorHandle, throughSequence)
+      db.routeUnreadDirectMessagesToRunMailbox(
+        run.id,
+        coordinatorHandle,
+        throughSequence,
+        params.expectedConsumerGeneration
+      )
     )
   }
   const revalidateConsumer = (): void => {
@@ -97,7 +117,12 @@ export async function checkRunMailbox(args: {
     revalidateConsumer()
   } catch (error) {
     if (pending.acknowledged) {
-      return interruptedAcknowledgedCheck(run.id, pending.acknowledged, 'consumer_fenced')
+      return interruptedAcknowledgedCheck(
+        run.id,
+        pending.acknowledged,
+        'consumer_fenced',
+        generation
+      )
     }
     throw error
   }
@@ -110,6 +135,7 @@ export async function checkRunMailbox(args: {
     const result = {
       messages: exposeMessages(messages),
       count: messages.length,
+      consumerGeneration: generation,
       acknowledged: acknowledged ?? null
     }
     if (params.format || params.inject) {
@@ -124,6 +150,7 @@ export async function checkRunMailbox(args: {
 
   const peekResult = (messages: MessageRow[]) => ({
     runId: run.id,
+    consumerGeneration: generation,
     messages: exposeMessages(messages),
     count: messages.length,
     acknowledged: acknowledged ?? null,
@@ -143,6 +170,7 @@ export async function checkRunMailbox(args: {
     return {
       runId: run.id,
       deliveryId: current.delivery.id,
+      consumerGeneration: generation,
       messages: exposeMessages(current.messages),
       count: current.messages.length,
       replayed: current.replayed,
@@ -162,6 +190,7 @@ export async function checkRunMailbox(args: {
     return {
       runId: run.id,
       deliveryId: null,
+      consumerGeneration: generation,
       messages: [],
       count: 0,
       acknowledged: acknowledged ?? null,
@@ -183,12 +212,12 @@ export async function checkRunMailbox(args: {
     if (!acknowledged) {
       throw error
     }
-    return interruptedAcknowledgedCheck(run.id, acknowledged, 'consumer_fenced')
+    return interruptedAcknowledgedCheck(run.id, acknowledged, 'consumer_fenced', generation)
   }
   const latestRun = db.getRun(run.id)
   if (!latestRun || latestRun.consumer_generation !== generation) {
     if (acknowledged) {
-      return interruptedAcknowledgedCheck(run.id, acknowledged, 'consumer_fenced')
+      return interruptedAcknowledgedCheck(run.id, acknowledged, 'consumer_fenced', generation)
     }
     throw new OrchestrationError(
       'consumer_fenced',
@@ -197,7 +226,7 @@ export async function checkRunMailbox(args: {
   }
   if (waitResult === 'waiter_exists') {
     if (acknowledged) {
-      return interruptedAcknowledgedCheck(run.id, acknowledged, 'waiter_exists')
+      return interruptedAcknowledgedCheck(run.id, acknowledged, 'waiter_exists', generation)
     }
     throw new OrchestrationError(
       'waiter_exists',
@@ -211,6 +240,7 @@ export async function checkRunMailbox(args: {
     return {
       runId: run.id,
       deliveryId: null,
+      consumerGeneration: generation,
       messages: [],
       count: 0,
       acknowledged: acknowledged ?? null,
@@ -231,6 +261,7 @@ export async function checkRunMailbox(args: {
     return {
       runId: run.id,
       deliveryId: null,
+      consumerGeneration: generation,
       messages: [],
       count: 0,
       acknowledged: acknowledged ?? null,
@@ -247,6 +278,7 @@ export async function checkRunMailbox(args: {
   return {
     runId: run.id,
     deliveryId: current?.delivery.id ?? null,
+    consumerGeneration: generation,
     messages: exposeMessages(current?.messages ?? []),
     count: current?.messages.length ?? 0,
     replayed: current?.replayed ?? false,
