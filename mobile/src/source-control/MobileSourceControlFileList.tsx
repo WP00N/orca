@@ -10,6 +10,7 @@ import type {
 } from './mobile-source-control-screen-state'
 import type { MobileSourceControlState } from './use-mobile-source-control-state'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
+import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { styles } from './mobile-source-control-styles'
 import { hubStyles } from './mobile-source-control-hub-styles'
 
@@ -33,12 +34,14 @@ export type FileListState = Pick<
   | 'openingBranchPath'
   | 'openFile'
   | 'openBranchDiff'
+  | 'resolveConflict'
   | 'runGitAction'
   | 'setDiscardTarget'
 >
 
 export function MobileSourceControlFileList({ state }: { state: FileListState }) {
   const colorScheme = useMobileColorScheme()
+  const t = useMobileTranslation()
   const sections: FileSection[] = state.sections.map((section) => ({
     ...section,
     key: section.id
@@ -46,7 +49,7 @@ export function MobileSourceControlFileList({ state }: { state: FileListState })
   if (state.shouldShowBranchCompareSection) {
     sections.push({
       key: 'committed',
-      title: 'Committed on Branch',
+      title: t('sourceControl.fileList.committedSection', 'Committed on Branch'),
       data:
         state.branchCompareState.kind === 'ready' &&
         state.branchCompareResult?.summary.status === 'ready'
@@ -54,7 +57,7 @@ export function MobileSourceControlFileList({ state }: { state: FileListState })
           : []
     })
   }
-  const renderFileRow = makeRenderFileRow(state)
+  const renderFileRow = makeRenderFileRow(state, t)
   return (
     <SectionList<FileEntry, FileSection>
       style={hubStyles.tabBody}

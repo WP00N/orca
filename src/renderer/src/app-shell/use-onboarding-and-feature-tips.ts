@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { onOnboardingReopened } from '../components/onboarding/show-onboarding-event'
 import { shouldShowOnboarding } from '../components/onboarding/should-show-onboarding'
@@ -14,6 +14,7 @@ import { useAppStore } from '../store'
 import { isWebClientLocation } from '../lib/web-client-location'
 import type { OnboardingState } from '../../../shared/onboarding-state-types'
 import { isInNativeChatUpgradeTipAudience } from '../../../shared/native-chat/native-chat-upgrade-tip-audience'
+import { isMacos12SupportNoticeEligible } from '../../../shared/macos-12-support-notice/upgrade-support'
 
 export type OnboardingGate = ReturnType<typeof useOnboardingAndFeatureTips>
 
@@ -119,6 +120,10 @@ export function useOnboardingAndFeatureTips() {
 
   useEffect(() => {
     const featureTipsDecision = getFeatureTipsAppOpenDecision({
+      macos12SupportNoticeEligible: isMacos12SupportNoticeEligible(
+        window.api.platform.get(),
+        isWebClientLocation()
+      ),
       activeModal,
       cliInstalled: featureTipCliInstalled,
       featureTipsSeenIds,
@@ -166,10 +171,9 @@ export function useOnboardingAndFeatureTips() {
     settings
   ])
 
-  return {
-    applyStartupOnboardingState,
-    onboarding,
-    setOnboarding,
-    shouldRender: onboarding !== null && shouldShowOnboarding(onboarding)
-  }
+  const shouldRender = onboarding !== null && shouldShowOnboarding(onboarding)
+  return useMemo(
+    () => ({ applyStartupOnboardingState, onboarding, setOnboarding, shouldRender }),
+    [applyStartupOnboardingState, onboarding, shouldRender]
+  )
 }
