@@ -84,9 +84,46 @@ export class AgentSessionTabTable {
   }
 }
 
+/**
+ * The explicit tab index for `state`, materializing it when the store predates it.
+ *
+ * A store written before chat-tab visibility existed has no index, and every recorded
+ * conversation was visible then. Reading that absence as "nothing is visible" would make
+ * existing chats unusable, and writing a fresh empty index would let the first
+ * single-session write become the whole visible set, silently dropping the legacy tabs.
+ * Materializing once, before any such write, keeps the legacy set authoritative.
+ */
+export function ensureAgentSessionTabIndex(state: AgentSessionStoreState): AgentSessionTabTable {
+  if (state.sessionTabs) {
+    return state.sessionTabs
+  }
+  const legacy = new AgentSessionTabTable(
+    [...state.records.keys()].map((sessionId): [string, string] => [
+      structuredAgentSessionTabId(sessionId),
+      sessionId
+    ])
+  )
+  state.sessionTabs = legacy
+  return legacy
+}
+
+/** Resolve a visible tab id without writing a legacy store's absent tab index. */
+export function agentSessionTabIdFor(state: AgentSessionStoreState, sessionId: string): string | null {
+  if (state.sessionTabs === null) {
+    return state.records.has(sessionId) ? structuredAgentSessionTabId(sessionId) : null
+  }
+  return state.sessionTabs.tabIdFor(sessionId) ?? null
+}
+
 /** The sessions whose chat tab is shown, in tab order, skipping any without a record. */
 export function listVisibleAgentSessionIds(state: AgentSessionStoreState): string[] {
-  return (state.sessionTabs?.sessionIds() ?? []).filter((sessionId) => state.records.has(sessionId))
+  const index = state.sessionTabs
+  // No explicit index means a store where every recorded conversation had a tab; visibility
+  // is then decided by the records, never by the absence of an index.
+  if (index === null) {
+    return [...state.records.keys()]
+  }
+  return index.sessionIds().filter((sessionId) => state.records.has(sessionId))
 }
 
 export function agentSessionVisibleTabIndex(state: AgentSessionStoreState): {
@@ -105,11 +142,13 @@ export function setAgentSessionTabVisibility(
   if (visible && !state.records.has(sessionId)) {
     throw agentSessionRefusalError('agent_session_identity_required', { reason: 'recordMissing' })
   }
-  state.sessionTabs ??= new AgentSessionTabTable()
+  // Never build the index here without inheriting the legacy visible set: an empty index
+  // would make this one write the whole sidebar.
+  const tabs = ensureAgentSessionTabIndex(state)
   if (visible) {
-    state.sessionTabs.show(sessionId, tabId)
+    tabs.show(sessionId, tabId)
   } else {
-    state.sessionTabs.hide(sessionId)
+    tabs.hide(sessionId)
   }
 }
 
