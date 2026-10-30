@@ -64,6 +64,8 @@ import {
 import { heldAgentSessionIds, type AgentSessionStoreState } from './agent-session-store-state'
 import {
   agentSessionVisibleTabIndex,
+  agentSessionTabIdFor,
+  ensureAgentSessionTabIndex,
   listVisibleAgentSessionIds,
   setAgentSessionTabVisibility,
   showAgentSessionTabs
@@ -139,12 +141,24 @@ export class AgentSessionRecordStore {
 
   /** The id of the chat tab showing this conversation, if one does. */
   getSessionTabId = (sessionId: string): string | null =>
-    this.state.sessionTabs?.tabIdFor(sessionId) ?? null
+    agentSessionTabIdFor(this.state, sessionId)
 
   /**
    * Persist the user-visible tab reference separately from the rollback-sensitive profile tabs.
    * Showing keeps a tab the session already has; `tabId` puts a hidden one back under its old id.
    */
+  sessionTabVisibilityReceipt(sessionId: string, tabId: string, guard: () => void): JournalOperationReceipt {
+    return this.transactions.receipt((draft) => {
+      guard()
+      // Inherit any legacy visible tabs first, so comparing against `tabId` never
+      // measures this session against an index that has not been materialized yet.
+      if (ensureAgentSessionTabIndex(draft).tabIdFor(sessionId) !== tabId) {
+        throw new Error('agenthq_tab_identity_changed')
+      }
+      setAgentSessionTabVisibility(draft, sessionId, false)
+    })
+  }
+
   setSessionTabVisibility(sessionId: string, visible: boolean, tabId?: string): Promise<void> {
     return this.transact((draft) => setAgentSessionTabVisibility(draft, sessionId, visible, tabId))
   }
